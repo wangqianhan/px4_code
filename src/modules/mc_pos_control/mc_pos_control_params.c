@@ -606,3 +606,26 @@ PARAM_DEFINE_FLOAT(MPC_ACC_HOR_MAX, 5.0f);
  * @group Multicopter Position Control
  */
 PARAM_DEFINE_INT32(MPC_ALT_MODE, 0);
+/**
+Proportional gain for horizontal position error
+ *
+ * @min 0
+ * @max 1
+ * @value 0 Altitude following
+ * @value 1 Terrain following
+ * @group Multicopter Position Control
+*/
+PARAM_DEFINE_FLOAT(MPC_X_P1, 0.95);
+PARAM_DEFINE_FLOAT(MPC_Y_P1, 0.95);
+PARAM_DEFINE_FLOAT(MPC_Z_P1, 0.95);
+/**
+ * Radius of position I and D controller enable in XY
+ *
+ * If radius of error is large than MPC_ID_RADIUS，use PD controller，else use PID controller
+ *
+ * @min 0.1
+ * @max 2.0
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPC_I_MAX, 0.3);

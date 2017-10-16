@@ -189,6 +189,9 @@ private:
 		param_t z_vel_max_up;
 		param_t z_vel_max_down;
 		param_t z_ff;
+		param_t x_p1;//NEW
+		param_t y_p1;
+		param_t z_p1;
 		param_t x_p;
 		param_t x_i;
 		param_t x_d;
@@ -221,6 +224,7 @@ private:
 		param_t opt_recover;
 		param_t id_enable_radius;	/*enable xy id controler radius -bdai<10 Oct 2016>*/
 		param_t zid_enable_radius;
+		param_t i_max;
 
 	}		_params_handles;		/**< handles for interesting parameters */
 
@@ -247,11 +251,11 @@ private:
 		float vel_max_down;
 		float id_enable_radius;
 		float zid_enable_radius;
-
+		float i_max;
 		uint32_t alt_mode;
 
 		int opt_recover;
-
+		math::Vector<3> pos_p1;
 		math::Vector<3> pos_p;
 		math::Vector<3> pos_i;
 		math::Vector<3> pos_d;
@@ -450,7 +454,7 @@ MulticopterPositionControl::MulticopterPositionControl() :
 	_ctrl_state.q[0] = 1.0f;
 
 	memset(&_ref_pos, 0, sizeof(_ref_pos));
-
+	_params.pos_p1.zero();
 	_params.pos_p.zero();
 	_params.pos_i.zero();
 	_params.pos_d.zero();
@@ -497,6 +501,9 @@ MulticopterPositionControl::MulticopterPositionControl() :
 	param_set(param_find("MPC_Z_VEL_MAX_DN"), &p);
 
 	_params_handles.z_ff		= param_find("MPC_Z_FF");
+	_params_handles.x_p1			= param_find("MPC_X_P1");//NEW
+	_params_handles.y_p1			= param_find("MPC_Y_P1");
+	_params_handles.z_p1			= param_find("MPC_Z_P1");
 	_params_handles.x_p			= param_find("MPC_X_P");
 	_params_handles.x_i			= param_find("MPC_X_I");
 	_params_handles.x_d			= param_find("MPC_X_D");
@@ -530,7 +537,7 @@ MulticopterPositionControl::MulticopterPositionControl() :
 	_params_handles.opt_recover = param_find("VT_OPT_RECOV_EN");
 	_params_handles.id_enable_radius = param_find("MPC_ID_RADIUS");
 	_params_handles.zid_enable_radius = param_find("MPC_Z_ID_RADIUS");
-
+	_params_handles.i_max = param_find("MPC_I_MAX");
 	/* fetch initial parameter values */
 	parameters_update(true);
 }
@@ -593,10 +600,16 @@ MulticopterPositionControl::parameters_update(bool force)
 
 		param_get(_params_handles.id_enable_radius, &v);
 		_params.id_enable_radius = v;
-
+		param_get(_params_handles.i_max, &v);
+				 _params.i_max =v;
 		param_get(_params_handles.zid_enable_radius, &v);
 		_params.zid_enable_radius = v;
-
+		param_get(_params_handles.x_p1, &v);
+		_params.pos_p1(0) = v;
+		param_get(_params_handles.y_p1, &v);
+		_params.pos_p1(1) = v;
+		param_get(_params_handles.z_p1, &v);
+		_params.pos_p1(2) = v;
 		param_get(_params_handles.x_p, &v);
 		_params.pos_p(0) = v;
 		param_get(_params_handles.y_p, &v);
@@ -1326,6 +1339,7 @@ MulticopterPositionControl::task_main()
 
 	bool reset_int_pxy = true;
 	bool reset_int_pz = true;
+	bool int_accu_enable=false;//NEW
 
 	hrt_abstime t_prev = 0;
 
@@ -1484,7 +1498,7 @@ MulticopterPositionControl::task_main()
 			reset_int_pz = true;
 			pos_err_p.zero();
 			pos_err_d.zero();
-
+		    int_accu_enable=false;//NEW
 			/* select control source */
 			if (_control_mode.flag_control_manual_enabled) {
 				/* manual control */
@@ -1577,13 +1591,25 @@ MulticopterPositionControl::task_main()
 					pos_err_p(1) = pos_err(1) * _params.pos_p(1);
 					pos_err_d(1) = _pos_err_d(1) * _params.pos_d(1);
 
-					if (sqrtf(pos_err(0)*pos_err(0) + pos_err(1)*pos_err(1)) > _params.id_enable_radius)
-					{
-						reset_int_pxy = true;
-						pos_err_d(0) = pos_err_d(1) = pos_err_d(2) = 0; /*set D as 0 -bdai<10 Oct 2016>*/
-					} else {
-						reset_int_pxy = false;
-					}
+										if (sqrtf(pos_err(0)*pos_err(0) + pos_err(1)*pos_err(1)) > _params.id_enable_radius)
+															 		{
+																			pos_err_p(0) = pos_err(0) * _params.pos_p1(0);
+																			pos_err_p(1) = pos_err(1) * _params.pos_p1(1);
+															 				reset_int_pxy = true;
+																			int_accu_enable=false;
+															 			    pos_err_d(0) = pos_err_d(1) = pos_err_d(2) = 0; /*set D as 0 -bdai<10 Oct 2016>*/
+
+																	} else if(sqrtf(pos_err(0)*pos_err(0) + pos_err(1)*pos_err(1)) > _params.i_max)
+																	{
+															 				reset_int_pxy = false;
+																			int_accu_enable=false;
+
+																	}else
+																	{
+																			reset_int_pxy = false;
+																			int_accu_enable=true;
+
+															 		}
 
 					_vel_sp(0) = pos_err_p(0) + pos_err_i(0) + pos_err_d(0);
 					_vel_sp(1) = pos_err_p(1) + pos_err_i(1) + pos_err_d(1);
@@ -1659,8 +1685,10 @@ MulticopterPositionControl::task_main()
 					_vel_sp(0) = _vel_sp(0) * _params.vel_max(0) / vel_norm_xy;
 					_vel_sp(1) = _vel_sp(1) * _params.vel_max(1) / vel_norm_xy;
 				} else if(_run_pos_control){
+					if(int_accu_enable){
 					pos_err_i(0) += pos_err(0) * _params.pos_i(0) * dt;
 					pos_err_i(1) += pos_err(1) * _params.pos_i(1) * dt;
+					}
 				}
 
 				if (_task_status.task_status >= 32 && _task_status.task_status <= 35
